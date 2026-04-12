@@ -176,6 +176,10 @@ The server automatically detects SSL certificates and enables HTTPS:
     - A dedicated **History Icon** in the mobile header allows toggling a newly redesigned full-screen drawer.
     - The drawer displays recently opened chats captured from the desktop's history panel, rendered using premium mobile cards.
     - Tapping a history item triggers a remote click on the desktop to switch conversations, supported by micro-animations on mobile.
+- **Support System (NEW!)**:
+    - A **Heart Icon** with a thematic glow is integrated into the settings bar.
+    - Clicking the icon opens a dedicated `supportOverlay` modal.
+    - The system facilitates project sustainability by providing a direct link to the developer's support page.
 - **Scroll Sync**: Phone scroll position syncs to Desktop with user scroll lock protection
 - **Shutdown**: On SIGINT/SIGTERM, server gracefully closes all connections before exit
 

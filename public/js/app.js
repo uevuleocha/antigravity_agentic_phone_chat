@@ -25,6 +25,9 @@ const historyList = document.getElementById('historyList');
 const enableHttpsBtn = document.getElementById('enableHttpsBtn');
 const dismissSslBtn = document.querySelector('.dismiss-btn');
 const closeModalBtn = document.getElementById('closeModalBtn');
+const supportBtn = document.getElementById('supportBtn');
+const supportOverlay = document.getElementById('supportOverlay');
+const closeSupportBtn = document.getElementById('closeSupportBtn');
 const backHistoryBtn = document.querySelector('.history-header .icon-btn');
 const quickActionChips = document.querySelectorAll('.action-chip');
 
@@ -676,6 +679,31 @@ messageInput.addEventListener('input', function () {
     this.style.height = 'auto';
     this.style.height = (this.scrollHeight) + 'px';
 });
+
+// --- Support Modal Logic ---
+if (supportBtn) {
+    supportBtn.addEventListener('click', () => {
+        if (supportOverlay) {
+            supportOverlay.classList.add('show');
+        }
+    });
+}
+
+if (closeSupportBtn) {
+    closeSupportBtn.addEventListener('click', () => {
+        if (supportOverlay) {
+            supportOverlay.classList.remove('show');
+        }
+    });
+}
+
+if (supportOverlay) {
+    supportOverlay.addEventListener('click', (e) => {
+        if (e.target === supportOverlay) {
+            supportOverlay.classList.remove('show');
+        }
+    });
+}
 
 // --- Scroll Sync to Desktop ---
 let scrollSyncTimeout = null;
