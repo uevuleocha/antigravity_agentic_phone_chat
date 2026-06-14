@@ -137,6 +137,13 @@ async function discoverCDP() {
                 console.log('Found Jetski/Launchpad target:', jetski.title);
                 return { port, url: jetski.webSocketDebuggerUrl };
             }
+
+            // Priority 3: Any page target (Antigravity 2.0 agentic app fallback)
+            const anyPage = list.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+            if (anyPage && anyPage.webSocketDebuggerUrl) {
+                console.log('Found Antigravity 2.0 target:', anyPage.title || '(untitled page)');
+                return { port, url: anyPage.webSocketDebuggerUrl };
+            }
         } catch (e) {
             errors.push(`${port}: ${e.message}`);
         }
