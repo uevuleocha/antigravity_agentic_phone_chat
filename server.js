@@ -507,7 +507,8 @@ async function injectMessage(cdp, text) {
         const cancel = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
         if (cancel && cancel.offsetParent !== null) return { ok:false, reason:"busy" };
 
-        const editors = [...document.querySelectorAll('#conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"]')]
+        // [Agentic App Fix - Phase K] Include conversation-view / scrollbar-hide selectors
+        const editors = [...document.querySelectorAll('[data-testid="conversation-view"] [contenteditable="true"], .scrollbar-hide [contenteditable="true"], #conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"]')]
             .filter(el => el.offsetParent !== null);
         const editor = editors.at(-1);
         if (!editor) return { ok:false, error:"editor_not_found" };
@@ -698,8 +699,8 @@ async function clickElement(cdp, { selector, index, textContent }) {
 
     const EXP = `(async () => {
         try {
-            // Priority: Search inside the chat container first for better accuracy
-            const root = document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade') || document;
+            // [Agentic App Fix - Phase K] Priority: Search inside the chat container first for better accuracy
+            const root = document.querySelector('[data-testid="conversation-view"]') || document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade') || document;
             
             // Strategy: Find all elements matching the selector
             let elements = Array.from(root.querySelectorAll('${selector}'));
@@ -755,17 +756,17 @@ async function remoteScroll(cdp, { scrollTop, scrollPercent }) {
     // Try to scroll the chat container in Antigravity
     const EXPRESSION = `(async () => {
         try {
-            // Find the main scrollable chat container
-            const scrollables = [...document.querySelectorAll('#conversation [class*="scroll"], #chat [class*="scroll"], #cascade [class*="scroll"], #conversation [style*="overflow"], #chat [style*="overflow"], #cascade [style*="overflow"]')]
+            // [Agentic App Fix - Phase K] Include conversation-view / scrollbar-hide in scrollable selectors
+            const scrollables = [...document.querySelectorAll('[data-testid="conversation-view"] [class*="scroll"], .scrollbar-hide [class*="scroll"], #conversation [class*="scroll"], #chat [class*="scroll"], #cascade [class*="scroll"], [data-testid="conversation-view"] [style*="overflow"], .scrollbar-hide [style*="overflow"], #conversation [style*="overflow"], #chat [style*="overflow"], #cascade [style*="overflow"]')]
                 .filter(el => el.scrollHeight > el.clientHeight);
             
             // Also check for the main chat area
-            const chatArea = document.querySelector('#conversation .overflow-y-auto, #chat .overflow-y-auto, #cascade .overflow-y-auto, #conversation [data-scroll-area], #chat [data-scroll-area], #cascade [data-scroll-area]');
+            const chatArea = document.querySelector('[data-testid="conversation-view"] .overflow-y-auto, .scrollbar-hide.overflow-y-auto, #conversation .overflow-y-auto, #chat .overflow-y-auto, #cascade .overflow-y-auto, [data-testid="conversation-view"] [data-scroll-area], #conversation [data-scroll-area], #chat [data-scroll-area], #cascade [data-scroll-area]');
             if (chatArea) scrollables.unshift(chatArea);
             
             if (scrollables.length === 0) {
                 // Fallback: scroll the main container element
-                const cascade = document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade');
+                const cascade = document.querySelector('[data-testid="conversation-view"]') || document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade');
                 if (cascade && cascade.scrollHeight > cascade.clientHeight) {
                     scrollables.push(cascade);
                 }
@@ -948,26 +949,61 @@ async function setModel(cdp, modelName) {
 async function startNewChat(cdp) {
     const EXP = `(async () => {
         try {
-            // Priority 1: Exact selector from user (data-tooltip-id="new-conversation-tooltip")
+            // [Agentic App Fix - Phase I]
+            // Antigravity 2.0 agentic app: "New Conversation" is a DIV[role="button"]
+            // in the sidebar with a child SPAN containing the text "New Conversation".
+            // No data-testid, no aria-label, no static tooltip ID — text content is
+            // the only stable selector. Dynamic UUID tooltip IDs are NOT usable.
+            const allClickable = Array.from(document.querySelectorAll('[role="button"], div'));
+            const newConvBtn = allClickable.find(el => {
+                const style = window.getComputedStyle(el);
+                if (style.cursor !== 'pointer') return false;
+                // Check for direct SPAN child with exact "New Conversation" text
+                const spans = el.querySelectorAll(':scope > span');
+                for (const span of spans) {
+                    if (span.textContent.trim() === 'New Conversation') return true;
+                }
+                // Also check direct text content for non-span layouts
+                const directText = Array.from(el.childNodes)
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim())
+                    .join('');
+                return directText === 'New Conversation';
+            });
+            if (newConvBtn) {
+                newConvBtn.click();
+                // Dispatch synthetic MouseEvents for React compatibility
+                try {
+                    const rect = newConvBtn.getBoundingClientRect();
+                    ['mousedown', 'mouseup', 'click'].forEach(type => {
+                        newConvBtn.dispatchEvent(new MouseEvent(type, {
+                            view: window, bubbles: true, cancelable: true,
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2
+                        }));
+                    });
+                } catch (e) { /* MouseEvent dispatch fallback */ }
+                return { success: true, method: 'agentic-text-match' };
+            }
+
+            // IDE Fallback 1: Exact selector (data-tooltip-id="new-conversation-tooltip")
             const exactBtn = document.querySelector('[data-tooltip-id="new-conversation-tooltip"]');
             if (exactBtn) {
                 exactBtn.click();
                 return { success: true, method: 'data-tooltip-id' };
             }
 
-            // Fallback: Use previous heuristics
+            // IDE Fallback 2: Plus icon heuristics
             const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a'));
             
-            // Find all buttons with plus icons
             const plusButtons = allButtons.filter(btn => {
-                if (btn.offsetParent === null) return false; // Skip hidden
+                if (btn.offsetParent === null) return false;
                 const hasPlusIcon = btn.querySelector('svg.lucide-plus') || 
                                    btn.querySelector('svg.lucide-square-plus') ||
                                    btn.querySelector('svg[class*="plus"]');
                 return hasPlusIcon;
             });
             
-            // Filter only top buttons (toolbar area)
             const topPlusButtons = plusButtons.filter(btn => {
                 const rect = btn.getBoundingClientRect();
                 return rect.top < 200;
@@ -979,7 +1015,7 @@ async function startNewChat(cdp) {
                  return { success: true, method: 'filtered_top_plus', count: topPlusButtons.length };
             }
             
-            // Fallback: aria-label
+            // IDE Fallback 3: aria-label
              const newChatBtn = allButtons.find(btn => {
                 const ariaLabel = btn.getAttribute('aria-label')?.toLowerCase() || '';
                 const title = btn.getAttribute('title')?.toLowerCase() || '';
@@ -1669,7 +1705,77 @@ async function initCDP() {
 
     console.log('🔌 Connecting to CDP...');
     cdpConnection = await connectCDP(cdpInfo.url);
+    cdpConnection.port = cdpInfo.port;
+    cdpConnection.url = cdpInfo.url;
     console.log(`✅ Connected! Found ${cdpConnection.contexts.length} execution contexts\n`);
+}
+
+// [Agentic App Fix - Phase H]
+// Dynamically verify and update cdpConnection to point to the active focused page target
+async function ensureActiveCDP() {
+    if (!cdpConnection || (cdpConnection.ws && cdpConnection.ws.readyState !== WebSocket.OPEN)) return;
+
+    let currentHasFocus = false;
+    try {
+        for (const ctx of cdpConnection.contexts) {
+            const res = await cdpConnection.call("Runtime.evaluate", {
+                expression: "document.hasFocus()",
+                returnByValue: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value === true) {
+                currentHasFocus = true;
+                break;
+            }
+        }
+    } catch (e) {
+        // Evaluate failed or connection issue
+    }
+
+    if (currentHasFocus) return;
+
+    try {
+        const port = cdpConnection.port || 9000;
+        const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+        const pages = list.filter(t => t.type === 'page' && t.webSocketDebuggerUrl);
+
+        for (const page of pages) {
+            if (page.webSocketDebuggerUrl === cdpConnection.url) continue;
+
+            try {
+                const tempCdp = await connectCDP(page.webSocketDebuggerUrl);
+                let anotherHasFocus = false;
+                for (const ctx of tempCdp.contexts) {
+                    const res = await tempCdp.call("Runtime.evaluate", {
+                        expression: "document.hasFocus()",
+                        returnByValue: true,
+                        contextId: ctx.id
+                    });
+                    if (res.result?.value === true) {
+                        anotherHasFocus = true;
+                        break;
+                    }
+                }
+
+                if (anotherHasFocus) {
+                    console.log(`[CDP] Active focus changed on desktop. Switching connection to page: "${page.title}"`);
+                    if (cdpConnection.ws) {
+                        try { cdpConnection.ws.close(); } catch (e) {}
+                    }
+                    cdpConnection = tempCdp;
+                    cdpConnection.port = port;
+                    cdpConnection.url = page.webSocketDebuggerUrl;
+                    return; // Focus switched
+                } else {
+                    if (tempCdp.ws) tempCdp.ws.close();
+                }
+            } catch (err) {
+                // Ignore temp connection/evaluation failures
+            }
+        }
+    } catch (err) {
+        // Ignore json list errors
+    }
 }
 
 // Background polling
@@ -1678,6 +1784,9 @@ async function startPolling(wss) {
     let isConnecting = false;
 
     const poll = async () => {
+        // [Agentic App Fix - Phase H] Ensure we are connected to the active page target
+        try { await ensureActiveCDP(); } catch (e) {}
+
         if (!cdpConnection || (cdpConnection.ws && cdpConnection.ws.readyState !== WebSocket.OPEN)) {
             if (!isConnecting) {
                 console.log('🔍 Looking for Antigravity CDP connection...');
@@ -2262,6 +2371,8 @@ async function main() {
         // Start New Chat
         app.post('/new-chat', async (req, res) => {
             if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+            // [Agentic App Fix - Phase I] Ensure connection points to active focused page target first
+            try { await ensureActiveCDP(); } catch (e) {}
             const result = await startNewChat(cdpConnection);
             res.json(result);
         });
@@ -2278,7 +2389,48 @@ async function main() {
             const { title } = req.body;
             if (!title) return res.status(400).json({ error: 'Chat title required' });
             if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+
+            // [Agentic App Fix - Phase H] Match selected chat title to page targets and swap connection
+            try {
+                const port = cdpConnection.port || 9000;
+                const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+                const matchedPage = list.find(t => t.type === 'page' && t.title === title && t.webSocketDebuggerUrl);
+                if (matchedPage && matchedPage.webSocketDebuggerUrl !== cdpConnection.url) {
+                    console.log(`[CDP] Select-chat matched page target: "${title}". Switching connection.`);
+                    const tempCdp = await connectCDP(matchedPage.webSocketDebuggerUrl);
+                    if (cdpConnection.ws) {
+                        try { cdpConnection.ws.close(); } catch (e) {}
+                    }
+                    cdpConnection = tempCdp;
+                    cdpConnection.port = port;
+                    cdpConnection.url = matchedPage.webSocketDebuggerUrl;
+                }
+            } catch (err) {
+                console.error('[CDP] Failed to swap connection on select-chat:', err.message);
+            }
+
             const result = await selectChat(cdpConnection, title);
+
+            // [Agentic App Fix - Phase H]
+            // After clicking the convo-pill, wait for the desktop DOM to re-render
+            // then capture a fresh snapshot so the phone's first poll gets real content
+            if (result.success) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const freshSnapshot = await captureSnapshot(cdpConnection);
+                    if (freshSnapshot && !freshSnapshot.error) {
+                        const hash = hashString(freshSnapshot.html || '');
+                        if (hash !== lastSnapshotHash) {
+                            lastSnapshot = freshSnapshot;
+                            lastSnapshotHash = hash;
+                        }
+                        console.log(`[Phase H] Fresh snapshot captured after chat switch: ${freshSnapshot.stats?.nodes || 0} nodes`);
+                    }
+                } catch (e) {
+                    console.log('[Phase H] Post-switch snapshot failed:', e.message);
+                }
+            }
+
             res.json(result);
         });
 

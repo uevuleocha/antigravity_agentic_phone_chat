@@ -41,6 +41,7 @@ let idleTimer = null;
 let lastHash = '';
 let currentMode = 'Fast';
 let chatIsOpen = true; // Track if a chat is currently open
+let isSwitchingConversation = false; // [Agentic App Fix - Phase H] Suppress showEmptyState() during conversation switches
 
 
 // --- Auth Utilities ---
@@ -238,7 +239,7 @@ async function loadSnapshot() {
             '    --border-color: #334155;\n' +
             '}\n' +
             '\n' +
-            '#conversation, #chat, #cascade {\n' +
+            '#conversation, #chat, #cascade, [data-testid="conversation-view"], .scrollbar-hide {\n' +
             '    background-color: transparent !important;\n' +
             '    color: var(--text-main) !important;\n' +
             '    font-family: \'Inter\', system-ui, sans-serif !important;\n' +
@@ -248,7 +249,7 @@ async function loadSnapshot() {
             '}\n' +
             '\n' +
             '/* Fix stacking BUT preserve absolute/fixed positioning for dropdowns */\n' +
-            '#conversation > div, #chat > div, #cascade > div {\n' +
+            '#conversation > div, #chat > div, #cascade > div, [data-testid="conversation-view"] > div, .scrollbar-hide > div {\n' +
             '    position: static !important;\n' +
             '}\n' +
             '/* Preserve absolute positioning needed for dropdowns, tooltips, popups */\n' +
@@ -257,7 +258,7 @@ async function loadSnapshot() {
             '    position: absolute !important;\n' +
             '}\n' +
             '\n' +
-            '#conversation p, #chat p, #cascade p, #conversation h1, #chat h1, #cascade h1, #conversation h2, #chat h2, #cascade h2, #conversation h3, #chat h3, #cascade h3, #conversation h4, #chat h4, #cascade h4, #conversation h5, #chat h5, #cascade h5, #conversation span, #chat span, #cascade span, #conversation div, #chat div, #cascade div, #conversation li, #chat li, #cascade li {\n' +
+            '#conversation p, #chat p, #cascade p, [data-testid="conversation-view"] p, .scrollbar-hide p, #conversation h1, #chat h1, #cascade h1, [data-testid="conversation-view"] h1, #conversation h2, #chat h2, #cascade h2, [data-testid="conversation-view"] h2, #conversation h3, #chat h3, #cascade h3, [data-testid="conversation-view"] h3, #conversation h4, #chat h4, #cascade h4, [data-testid="conversation-view"] h4, #conversation h5, #chat h5, #cascade h5, [data-testid="conversation-view"] h5, #conversation span, #chat span, #cascade span, [data-testid="conversation-view"] span, #conversation div, #chat div, #cascade div, [data-testid="conversation-view"] div, .scrollbar-hide div, #conversation li, #chat li, #cascade li, [data-testid="conversation-view"] li {\n' +
             '    color: inherit !important;\n' +
             '}\n' +
             '\n' +
@@ -267,7 +268,7 @@ async function loadSnapshot() {
             '    color: #e2e8f0 !important;\n' +
             '}\n' +
             '\n' +
-            '#conversation a, #chat a, #cascade a {\n' +
+            '#conversation a, #chat a, #cascade a, [data-testid="conversation-view"] a, .scrollbar-hide a {\n' +
             '    color: #60a5fa !important;\n' +
             '    text-decoration: underline;\n' +
             '}\n' +
@@ -937,8 +938,17 @@ historyBtn.addEventListener('click', showChatHistory);
 
 // --- Select Chat from History ---
 async function selectChat(title) {
+    // [Agentic App Fix - Phase H] Set switching flag to suppress showEmptyState()
+    isSwitchingConversation = true;
+
     // Visual reset while desktop switches conversation
     chatContent.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><p>Switching Conversation...</p></div>';
+
+    // Safety timeout: clear the switching flag after 8 seconds no matter what
+    const switchTimeout = setTimeout(() => {
+        isSwitchingConversation = false;
+        console.log('[Phase H] Switching flag cleared by safety timeout');
+    }, 8000);
 
     try {
         const res = await fetchWithAuth('/select-chat', {
@@ -949,25 +959,45 @@ async function selectChat(title) {
         const data = await res.json();
 
         if (data.success) {
-            // Persistent polling to catch delayed desktop render/update
+            // [Agentic App Fix - Phase H] Smart polling with early cancel
             let attempts = 0;
             const poll = setInterval(async () => {
                 await loadSnapshot();
                 attempts++;
-                if (attempts > 10) clearInterval(poll);
+
+                // Check if content has loaded (loadSnapshot sets chatIsOpen = true
+                // and populates chatContent with actual snapshot data)
+                const hasContent = chatIsOpen && chatContent.querySelector('[data-testid], .message, .msg, p, pre, code, h1, h2, h3');
+                if (hasContent || attempts > 10) {
+                    clearInterval(poll);
+                    isSwitchingConversation = false;
+                    clearTimeout(switchTimeout);
+                    console.log(`[Phase H] Switch complete after ${attempts} polls, hasContent=${!!hasContent}`);
+                }
             }, 500);
         } else {
             console.error('Failed to select chat:', data.error);
+            isSwitchingConversation = false;
+            clearTimeout(switchTimeout);
             setTimeout(loadSnapshot, 500);
         }
     } catch (e) {
         console.error('Select chat error:', e);
+        isSwitchingConversation = false;
+        clearTimeout(switchTimeout);
         setTimeout(loadSnapshot, 500);
     }
 }
 
 // --- Check Chat Status ---
 async function checkChatStatus() {
+    // [Agentic App Fix - Phase H] Skip status check during conversation switch
+    // to prevent showEmptyState() from wiping content that loadSnapshot() just rendered
+    if (isSwitchingConversation) {
+        console.log('[Phase H] Skipping checkChatStatus — conversation switch in progress');
+        return;
+    }
+
     try {
         const res = await fetchWithAuth('/chat-status');
         const data = await res.json();
