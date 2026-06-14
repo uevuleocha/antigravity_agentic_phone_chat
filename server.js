@@ -1237,6 +1237,63 @@ async function selectChat(cdp, chatTitle) {
             const log = (msg) => debugInfo.push(msg);
             log('Starting selectChat for: ' + targetTitle);
 
+            // [Agentic App Fix - Phase F]
+            // Antigravity 2.0 agentic app: conversations are always visible as
+            // data-testid="convo-pill-<UUID>" spans in the sidebar. Click directly.
+            const agenticPills = Array.from(document.querySelectorAll('[data-testid^="convo-pill-"]'));
+            if (agenticPills.length > 0) {
+                log('Found ' + agenticPills.length + ' agentic convo-pills');
+                
+                // Score each pill for best title match
+                const scored = agenticPills.map(pill => {
+                    const text = pill.textContent.trim();
+                    const targetLower = targetTitle.toLowerCase();
+                    const textLower = text.toLowerCase();
+                    let score = 0;
+                    if (text === targetTitle) score = 100;
+                    else if (textLower === targetLower) score = 90;
+                    else if (text.includes(targetTitle)) score = 70;
+                    else if (textLower.includes(targetLower)) score = 60;
+                    else if (targetLower.includes(textLower)) score = 50;
+                    else if (textLower.startsWith(targetLower.substring(0, 15))) score = 40;
+                    return { pill, text, score };
+                }).filter(s => s.score >= 40).sort((a, b) => b.score - a.score);
+
+                if (scored.length > 0) {
+                    const best = scored[0];
+                    log('Best pill match: "' + best.text + '" (score: ' + best.score + ')');
+
+                    // Navigate up to the clickable parent container
+                    let clickable = best.pill;
+                    for (let i = 0; i < 6; i++) {
+                        if (!clickable || !clickable.parentElement) break;
+                        const style = window.getComputedStyle(clickable);
+                        if (style.cursor === 'pointer' || clickable.tagName === 'BUTTON' || clickable.tagName === 'A') break;
+                        clickable = clickable.parentElement;
+                    }
+
+                    clickable.click();
+                    log('Clicked convo-pill parent');
+
+                    // Also dispatch mouse events for React apps that use synthetic event handling
+                    try {
+                        const rect = clickable.getBoundingClientRect();
+                        ['mousedown', 'mouseup', 'click'].forEach(type => {
+                            clickable.dispatchEvent(new MouseEvent(type, {
+                                view: window, bubbles: true, cancelable: true,
+                                clientX: rect.left + rect.width / 2,
+                                clientY: rect.top + rect.height / 2
+                            }));
+                        });
+                    } catch (e) { log('MouseEvent dispatch note: ' + e.message); }
+
+                    return { success: true, source: 'agentic-pill-click', matched: best.text, debug: debugInfo };
+                }
+                log('No pill matched targetTitle');
+            }
+
+            // Antigravity IDE fallback: history-panel-based chat switching (preserved below)
+
             // 1. Open History Panel (same robust method style as getChatHistory)
             let historyBtn = document.querySelector('[data-tooltip-id="history-tooltip"]');
             
@@ -1453,7 +1510,14 @@ async function closeHistory(cdp) {
 // Check if a chat is currently open (has cascade element)
 async function hasChatOpen(cdp) {
     const EXP = `(() => {
-    const chatContainer = document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade');
+    // [Agentic App Fix - Phase E]
+    // Antigravity 2.0 agentic app: data-testid="conversation-view" wraps the chat.
+    // Antigravity IDE fallback: legacy #conversation / #chat / #cascade element IDs.
+    const chatContainer =
+        document.querySelector('[data-testid="conversation-view"]') ||
+        document.getElementById('conversation') ||
+        document.getElementById('chat') ||
+        document.getElementById('cascade');
     const hasMessages = chatContainer && chatContainer.querySelectorAll('[class*="message"], [data-message]').length > 0;
     return {
         hasChat: !!chatContainer,
