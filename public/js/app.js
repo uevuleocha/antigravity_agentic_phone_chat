@@ -11,12 +11,12 @@ const stopBtn = document.getElementById('stopBtn');
 const newChatBtn = document.getElementById('newChatBtn');
 const historyBtn = document.getElementById('historyBtn');
 
-const modeBtn = document.getElementById('modeBtn');
+// modeBtn removed — Fast/Planning mode not available in Antigravity 2.0 agentic app
 const modelBtn = document.getElementById('modelBtn');
 const modalOverlay = document.getElementById('modalOverlay');
 const modalList = document.getElementById('modalList');
 const modalTitle = document.getElementById('modalTitle');
-const modeText = document.getElementById('modeText');
+// modeText removed — see modeBtn note above
 const modelText = document.getElementById('modelText');
 const historyLayer = document.getElementById('historyLayer');
 const historyList = document.getElementById('historyList');
@@ -69,12 +69,7 @@ async function fetchAppState() {
         const res = await fetchWithAuth('/app-state');
         const data = await res.json();
 
-        // Mode Sync (Fast/Planning) - Desktop is source of truth
-        if (data.mode && data.mode !== 'Unknown') {
-            modeText.textContent = data.mode;
-            modeBtn.classList.toggle('active', data.mode === 'Planning');
-            currentMode = data.mode;
-        }
+        // Mode Sync removed — Fast/Planning mode not available in Antigravity 2.0 agentic app
 
         // Model Sync - Desktop is source of truth
         if (data.model && data.model !== 'Unknown') {
@@ -1038,29 +1033,7 @@ modalOverlay.onclick = (e) => {
     if (e.target === modalOverlay) closeModal();
 };
 
-modeBtn.addEventListener('click', () => {
-    openModal('Select Mode', ['Fast', 'Planning'], async (mode) => {
-        modeText.textContent = 'Setting...';
-        try {
-            const res = await fetchWithAuth('/set-mode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode })
-            });
-            const data = await res.json();
-            if (data.success) {
-                currentMode = mode;
-                modeText.textContent = mode;
-                modeBtn.classList.toggle('active', mode === 'Planning');
-            } else {
-                alert('Error: ' + (data.error || 'Unknown'));
-                modeText.textContent = currentMode;
-            }
-        } catch (e) {
-            modeText.textContent = currentMode;
-        }
-    });
-});
+// modeBtn click listener removed — Fast/Planning mode not available in Antigravity 2.0 agentic app
 
 modelBtn.addEventListener('click', () => {
     openModal('Select Model', MODELS, async (model) => {

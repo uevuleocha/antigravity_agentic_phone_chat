@@ -217,7 +217,15 @@ async function connectCDP(url) {
 // Capture chat snapshot
 async function captureSnapshot(cdp) {
     const CAPTURE_SCRIPT = `(async () => {
-        const cascade = document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade');
+        // [Agentic App Fix - Phase A]
+        // Antigravity 2.0 agentic app: data-testid="conversation-view" wraps the chat scroll area.
+        // Antigravity IDE fallback: legacy #conversation / #chat / #cascade element IDs.
+        const cascade =
+            document.querySelector('[data-testid="conversation-view"] .scrollbar-hide') ||
+            document.querySelector('[data-testid="conversation-view"]') ||
+            document.getElementById('conversation') ||
+            document.getElementById('chat') ||
+            document.getElementById('cascade');
         if (!cascade) {
             // Debug info
             const body = document.body;
@@ -1008,6 +1016,20 @@ async function getChatHistory(cdp) {
         try {
             const chats = [];
             const seenTitles = new Set();
+
+            // [Agentic App Fix - Phase C]
+            // Antigravity 2.0 agentic app: conversations are always enumerable directly via
+            // data-testid="convo-pill-<UUID>" spans present in the sidebar — no button click needed.
+            const agenticPills = Array.from(document.querySelectorAll('[data-testid^="convo-pill-"]'));
+            if (agenticPills.length > 0) {
+                const chats = agenticPills.map(pill => ({
+                    id:    pill.getAttribute('data-testid').replace('convo-pill-', ''),
+                    title: pill.textContent.trim() || '(Untitled)'
+                }));
+                return { chats, source: 'agentic-pills' };
+            }
+
+            // Antigravity IDE fallback: click-based history button hunt (preserved below)
 
             // Priority 1: Look for tooltip ID pattern (history/past/recent)
             let historyBtn = document.querySelector('[data-tooltip-id*="history"], [data-tooltip-id*="past"], [data-tooltip-id*="recent"], [data-tooltip-id*="conversation-history"]');
