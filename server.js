@@ -557,16 +557,25 @@ async function injectMessage(cdp, text) {
 
         const textToInsert = ${safeText};
 
-        editor.focus();
-        document.execCommand?.("selectAll", false, null);
-        document.execCommand?.("delete", false, null);
-
-        let inserted = false;
-        try { inserted = !!document.execCommand?.("insertText", false, textToInsert); } catch {}
-        if (!inserted) {
-            editor.textContent = textToInsert;
-            editor.dispatchEvent(new InputEvent("beforeinput", { bubbles:true, inputType:"insertText", data: textToInsert }));
-            editor.dispatchEvent(new InputEvent("input", { bubbles:true, inputType:"insertText", data: textToInsert }));
+        // If the editor already contains the exact text we want to send, do not clear/re-insert (prevents React duplicate state bug)
+        const existingText = (editor.innerText || editor.textContent || editor.value || '').trim();
+        if (existingText !== textToInsert.trim()) {
+            editor.focus();
+            if (editor.tagName === 'TEXTAREA') {
+                editor.select();
+            } else {
+                const sel = window.getSelection();
+                if (sel) {
+                    sel.selectAllChildren(editor);
+                }
+            }
+            let inserted = false;
+            try { inserted = !!document.execCommand?.("insertText", false, textToInsert); } catch {}
+            if (!inserted) {
+                editor.textContent = textToInsert;
+                editor.dispatchEvent(new InputEvent("beforeinput", { bubbles:true, inputType:"insertText", data: textToInsert }));
+                editor.dispatchEvent(new InputEvent("input", { bubbles:true, inputType:"insertText", data: textToInsert }));
+            }
         }
 
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));

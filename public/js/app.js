@@ -1262,13 +1262,24 @@ chatContainer.addEventListener('click', async (e) => {
                 if (btnsPanel) btnsPanel.remove();
                 textToCopy = (clone.innerText || clone.textContent || '').trim();
             } else {
-                const agentArticle = btn.closest('[role="article"], [aria-label="Agent response"]');
+                const agentArticle = btn.closest('[role="article"]');
                 console.log('[Agentic App Fix] Agent article parent found:', !!agentArticle);
                 if (agentArticle) {
-                    const clone = agentArticle.cloneNode(true);
-                    // Remove buttons, styles, svgs, and the control panels to isolate text (avoiding class*="button" collapse)
-                    clone.querySelectorAll('button, [role="button"], style, svg, .pt-3').forEach(el => el.remove());
-                    textToCopy = (clone.innerText || clone.textContent || '').trim();
+                    // Try to find the specific text container first
+                    const textEl = agentArticle.querySelector('.select-text') || agentArticle.querySelector('.px-2.py-1');
+                    if (textEl) {
+                        const clone = textEl.cloneNode(true);
+                        clone.querySelectorAll('style, svg, button, [role="button"]').forEach(el => el.remove());
+                        textToCopy = (clone.innerText || clone.textContent || '').trim();
+                        console.log('[Agentic App Fix] Copied via targeted text container:', textToCopy.substring(0, 30));
+                    }
+                    // Fallback to pruned article clone if text container is not found
+                    if (!textToCopy) {
+                        const clone = agentArticle.cloneNode(true);
+                        clone.querySelectorAll('button, [role="button"], style, svg, .pt-3').forEach(el => el.remove());
+                        textToCopy = (clone.innerText || clone.textContent || '').trim();
+                        console.log('[Agentic App Fix] Copied via article fallback:', textToCopy.substring(0, 30));
+                    }
                 }
             }
             console.log('[Agentic App Fix] Text length to copy:', textToCopy.length);
