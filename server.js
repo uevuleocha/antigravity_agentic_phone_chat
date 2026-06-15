@@ -258,6 +258,9 @@ async function captureSnapshot(cdp) {
 
         // Clone cascade to modify it without affecting the original
         const clone = cascade.cloneNode(true);
+
+        // [Agentic App Fix - Phase P] Resolve scroll container inside the clone to use for boundaries
+        const cloneScrollContainer = clone.querySelector('.scrollbar-hide, .overflow-y-auto, [data-scroll-area]') || clone;
         
         // Clean up markers from the original DOM immediately after cloning
         candidates.forEach(el => el.removeAttribute('data-ag-rem'));
@@ -284,6 +287,9 @@ async function captureSnapshot(cdp) {
             interactionSelectors.forEach(selector => {
                 clone.querySelectorAll(selector).forEach(el => {
                     try {
+                        // [Agentic App Fix - Phase P] Scroll Container Shield: Do not delete scroll container or its descendants
+                        if (el === cloneScrollContainer || cloneScrollContainer.contains(el)) return;
+
                         // Protect elements that contain interactive buttons the user might need
                         const text = (el.innerText || '').toLowerCase();
                         const isActionArea = text.includes('allow') || text.includes('deny') || 
@@ -328,6 +334,9 @@ async function captureSnapshot(cdp) {
             const allElements = clone.querySelectorAll('*');
             allElements.forEach(el => {
                 try {
+                    // [Agentic App Fix - Phase P] Scroll Container Shield: Do not delete scroll container or its descendants
+                    if (el === cloneScrollContainer || cloneScrollContainer.contains(el)) return;
+
                     const text = (el.innerText || '').toLowerCase();
                     const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
                     const isInputPlaceholder = text.includes('ask anything') || 
@@ -341,7 +350,8 @@ async function captureSnapshot(cdp) {
                         for (let i = 0; i < 5; i++) {
                             if (!container.parentElement || container.parentElement === clone) break;
                             const cls = (container.className || '').toString();
-                            if (cls.includes('flex-col') || cls.includes('input') || cls.includes('area')) {
+                            // [Agentic App Fix - Phase P] Restrict matching to input/area, avoiding generic layout classes like flex-col
+                            if (cls.includes('input') || cls.includes('area')) {
                                 container.remove();
                                 return;
                             }
@@ -357,14 +367,18 @@ async function captureSnapshot(cdp) {
             const redundantElements = clone.querySelectorAll('[contenteditable="true"], [data-lexical-editor], [role="textbox"], form, .mx-8.mb-8, .mx-4.mb-4');
             redundantElements.forEach(el => {
                 try {
+                    // [Agentic App Fix - Phase P] Scroll Container Shield: Do not delete scroll container or its descendants
+                    if (el === cloneScrollContainer || cloneScrollContainer.contains(el)) return;
+
                     let branch = el;
                     // Go up to find the highest container that is still within the clone
                     // This ensures we remove the entire "box" (with chips, submit btn, etc)
                     while (branch.parentElement && branch.parentElement !== clone) {
                         const p = branch.parentElement;
                         const pCls = (p.className || '').toString().toLowerCase();
-                        // Stop going up if we hit a main message/conversation wrapper
-                        if (pCls.includes('message') || pCls.includes('bubble') || pCls.includes('conversation')) break;
+                        // [Agentic App Fix - Phase P] Stop climbing if we hit the scroll container or a message wrapper
+                        if (pCls.includes('message') || pCls.includes('bubble') || pCls.includes('conversation') ||
+                            pCls.includes('scrollbar-hide') || pCls.includes('overflow-y-auto')) break;
                         branch = p;
                     }
                     if (branch && branch !== clone) branch.remove();
@@ -376,6 +390,9 @@ async function captureSnapshot(cdp) {
             // These were marked in the original before cloning to ensure accurate computed styles
             clone.querySelectorAll('[data-ag-rem]').forEach(el => {
                 try {
+                    // [Agentic App Fix - Phase P] Scroll Container Shield: Do not delete scroll container or its descendants
+                    if (el === cloneScrollContainer || cloneScrollContainer.contains(el)) return;
+
                     const text = (el.innerText || '').toLowerCase();
                     // Exclude Action Bars we want to keep
                     if (text.includes('allow') || text.includes('deny') || text.includes('review')) {
