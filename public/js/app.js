@@ -1236,6 +1236,97 @@ chatContainer.addEventListener('click', async (e) => {
     // --- Command Action Buttons (Run, Reject, Allow, Deny, etc.) ---
     const btn = e.target.closest('button, [role="button"]');
     if (btn) {
+        // [Agentic App Fix - Phase A] Message Copy button handler
+        if (btn.getAttribute('aria-label') === 'Copy') {
+            e.preventDefault();
+            e.stopPropagation();
+            let textToCopy = '';
+            const userStep = btn.closest('[data-testid="user-input-step"]');
+            if (userStep) {
+                const clone = userStep.cloneNode(true);
+                const btnsPanel = clone.querySelector('[data-ag-rem="true"]') || clone.querySelector('.absolute');
+                if (btnsPanel) btnsPanel.remove();
+                textToCopy = (clone.innerText || clone.textContent || '').trim();
+            } else {
+                const agentArticle = btn.closest('[role="article"], [aria-label="Agent response"]');
+                if (agentArticle) {
+                    const textEl = agentArticle.querySelector('.select-text, .leading-relaxed');
+                    if (textEl) {
+                        textToCopy = (textEl.innerText || textEl.textContent || '').trim();
+                    } else {
+                        const clone = agentArticle.cloneNode(true);
+                        const btnsPanel = clone.querySelector('.pt-3') || clone.querySelector('button');
+                        if (btnsPanel) btnsPanel.remove();
+                        textToCopy = (clone.innerText || clone.textContent || '').trim();
+                    }
+                }
+            }
+            if (textToCopy) {
+                const success = await copyToClipboard(textToCopy);
+                if (success) {
+                    const originalOpacity = btn.style.opacity || '1';
+                    btn.style.opacity = '0.3';
+                    setTimeout(() => btn.style.opacity = originalOpacity, 500);
+                }
+            }
+            return;
+        }
+
+        // [Agentic App Fix - Phase B] Revert/Undo changes button handler
+        const undoLabel = btn.getAttribute('aria-label') || '';
+        if (btn.getAttribute('data-testid') === 'revert-button' || undoLabel.includes('Undo changes')) {
+            e.preventDefault();
+            e.stopPropagation();
+            const allRevertBtns = Array.from(chatContainer.querySelectorAll('button[data-testid="revert-button"], button[aria-label*="Undo"]'));
+            const revertIndex = allRevertBtns.indexOf(btn);
+            
+            btn.style.opacity = '0.5';
+            setTimeout(() => btn.style.opacity = '1', 300);
+
+            try {
+                await fetchWithAuth('/remote-click', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        selector: 'button[data-testid="revert-button"], button[aria-label*="Undo"]',
+                        index: revertIndex >= 0 ? revertIndex : 0
+                    })
+                });
+                setTimeout(loadSnapshot, 500);
+                setTimeout(loadSnapshot, 1500);
+            } catch (err) {
+                console.error('Remote revert click failed:', err);
+            }
+            return;
+        }
+
+        // [Agentic App Fix - Phase C] Thumbs Up/Down feedback buttons handler
+        const feedbackLabel = btn.getAttribute('aria-label') || '';
+        if (feedbackLabel === 'Good response' || feedbackLabel === 'Bad response') {
+            e.preventDefault();
+            e.stopPropagation();
+            const allFeedbackBtns = Array.from(chatContainer.querySelectorAll(`button[aria-label="${feedbackLabel}"]`));
+            const feedbackIndex = allFeedbackBtns.indexOf(btn);
+
+            btn.style.opacity = '0.5';
+            setTimeout(() => btn.style.opacity = '1', 300);
+
+            try {
+                await fetchWithAuth('/remote-click', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        selector: `button[aria-label="${feedbackLabel}"]`,
+                        index: feedbackIndex >= 0 ? feedbackIndex : 0
+                    })
+                });
+                setTimeout(loadSnapshot, 500);
+            } catch (err) {
+                console.error('Remote feedback click failed:', err);
+            }
+            return;
+        }
+
         const btnText = (btn.innerText || '').trim();
 
         // Match various action keywords
