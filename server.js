@@ -1849,15 +1849,12 @@ async function detectPermissionDialog(cdp) {
 
         numEls.forEach(numEl => {
             const index = parseInt(numEl.innerText.trim(), 10);
-            let row = numEl.parentElement;
-            for (let i = 0; i < 3; i++) {
-                if (row && row.parentElement && row.parentElement !== container) {
-                    row = row.parentElement;
-                } else {
-                    break;
-                }
+            let row = numEl;
+            while (row && row.parentElement && row.parentElement !== container) {
+                row = row.parentElement;
             }
             if (row) {
+
                 const inputEl = row.querySelector('textarea, input');
                 let label = '';
                 if (inputEl) {
