@@ -31,6 +31,15 @@ const closeSupportBtn = document.getElementById('closeSupportBtn');
 const backHistoryBtn = document.querySelector('.history-header .icon-btn');
 const quickActionChips = document.querySelectorAll('.action-chip');
 
+// Permission prompt elements
+const permissionOverlay = document.getElementById('permissionOverlay');
+const permissionPrompt = document.getElementById('permissionPrompt');
+const permissionOptions = document.getElementById('permissionOptions');
+const permissionWriteInContainer = document.getElementById('permissionWriteInContainer');
+const permissionWriteIn = document.getElementById('permissionWriteIn');
+const submitPermissionBtn = document.getElementById('submitPermissionBtn');
+const closePermissionBtn = document.getElementById('closePermissionBtn');
+
 // --- State ---
 let autoRefreshEnabled = true;
 let userIsScrolling = false;
@@ -42,6 +51,10 @@ let lastHash = '';
 let currentMode = 'Fast';
 let chatIsOpen = true; // Track if a chat is currently open
 let isSwitchingConversation = false; // [Agentic App Fix - Phase H] Suppress showEmptyState() during conversation switches
+let selectedOptionIndex = null;
+let lastDismissedQuestion = null;
+let currentActiveQuestion = null;
+
 
 
 // --- Auth Utilities ---
@@ -206,7 +219,11 @@ async function loadSnapshot() {
 
         const data = await response.json();
 
+        // [Permission Prompt Fix - Phase D] Handle permission dialog display
+        handlePermissionDialog(data.permissionDialog);
+
         // Capture scroll state BEFORE updating content
+
         const scrollPos = chatContainer.scrollTop;
         const scrollHeight = chatContainer.scrollHeight;
         const clientHeight = chatContainer.clientHeight;
@@ -1296,3 +1313,123 @@ setInterval(fetchAppState, 5000);
 // Check chat status initially and periodically
 checkChatStatus();
 setInterval(checkChatStatus, 10000); // Check every 10 seconds
+
+// --- Permission Dialog Handling (Phases C & D) ---
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+}
+
+function handlePermissionDialog(dialog) {
+    if (!dialog) {
+        permissionOverlay.classList.remove('show');
+        lastDismissedQuestion = null;
+        currentActiveQuestion = null;
+        return;
+    }
+
+    currentActiveQuestion = dialog.question;
+
+    // If the user already dismissed this specific question, don't show it again
+    if (dialog.question === lastDismissedQuestion) {
+        permissionOverlay.classList.remove('show');
+        return;
+    }
+
+    // Populate question
+    permissionPrompt.textContent = dialog.question;
+    permissionOptions.innerHTML = '';
+    selectedOptionIndex = null;
+    permissionWriteIn.value = '';
+    permissionWriteInContainer.style.display = 'none';
+    submitPermissionBtn.style.display = 'none';
+
+    // Populate options
+    dialog.options.forEach(option => {
+        const optEl = document.createElement('div');
+        optEl.className = 'permission-option';
+        optEl.innerHTML = `
+            <span>${escapeHtml(option.label)}</span>
+            <span class="permission-option-badge">${option.index}</span>
+        `;
+        
+        optEl.addEventListener('click', () => {
+            // Remove selected class from all options
+            permissionOptions.querySelectorAll('.permission-option').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            // Add selected to this option
+            optEl.classList.add('selected');
+            selectedOptionIndex = option.index;
+            
+            // Toggle write-in visibility
+            if (option.isWriteIn) {
+                permissionWriteInContainer.style.display = 'block';
+                permissionWriteIn.focus();
+            } else {
+                permissionWriteInContainer.style.display = 'none';
+            }
+            
+            // Show submit button
+            submitPermissionBtn.style.display = 'block';
+        });
+        
+        permissionOptions.appendChild(optEl);
+    });
+
+    permissionOverlay.classList.add('show');
+}
+
+async function submitPermissionResponse() {
+    if (selectedOptionIndex === null) return;
+    
+    submitPermissionBtn.disabled = true;
+    submitPermissionBtn.textContent = 'Submitting...';
+    
+    try {
+        const customText = permissionWriteIn.value;
+        const res = await fetchWithAuth('/answer-permission', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                optionIndex: selectedOptionIndex,
+                customText: customText
+            })
+        });
+        const result = await res.json();
+        if (result.success) {
+            permissionOverlay.classList.remove('show');
+            selectedOptionIndex = null;
+            permissionWriteIn.value = '';
+            lastDismissedQuestion = null; // Reset dismissed state on successful answer
+            loadSnapshot();
+        } else {
+            alert('Failed to submit: ' + (result.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Error submitting response: ' + e.message);
+    } finally {
+        submitPermissionBtn.disabled = false;
+        submitPermissionBtn.textContent = 'Submit';
+    }
+}
+
+// Add event listeners for permission modal buttons
+if (closePermissionBtn) {
+    closePermissionBtn.addEventListener('click', () => {
+        if (currentActiveQuestion) {
+            lastDismissedQuestion = currentActiveQuestion;
+        }
+        permissionOverlay.classList.remove('show');
+    });
+}
+
+if (submitPermissionBtn) {
+    submitPermissionBtn.addEventListener('click', submitPermissionResponse);
+}
+

@@ -37,6 +37,7 @@ let AUTH_TOKEN = 'ag_default_token';
 let cdpConnection = null;
 let lastSnapshot = null;
 let lastSnapshotHash = null;
+let lastPermissionDialog = null; // [Permission Prompt Fix - Phase A]
 
 // Kill any existing process on the server port (prevents EADDRINUSE)
 function killPortProcess(port) {
@@ -1799,6 +1800,83 @@ async function ensureActiveCDP() {
     }
 }
 
+// [Permission Prompt Fix - Phase A]
+// Detects an active ask_question / permission dialog inside conversation-view.
+// Returns structured dialog data { question, options, hasWriteIn } or null.
+async function detectPermissionDialog(cdp) {
+    const DETECT_SCRIPT = `(() => {
+        const convView = document.querySelector('[data-testid="conversation-view"]');
+        if (!convView) return null;
+        const allEls = Array.from(convView.querySelectorAll('*'));
+
+        // Anchor: "Waiting for user input..." with select-none class AND Submit button present
+        const waitingEl = allEls.find(el =>
+            (el.innerText || '').trim() === 'Waiting for user input...' &&
+            (el.className || '').includes('select-none') &&
+            el.offsetHeight > 0
+        );
+        if (!waitingEl) return null;
+
+        // Confirm Submit button is live (dialog not yet answered)
+        const hasSubmit = allEls.some(el =>
+            (el.innerText || '').trim() === 'Submit' &&
+            (el.className || '').includes('bg-accent') &&
+            el.offsetHeight > 0
+        );
+        if (!hasSubmit) return null;
+
+        // Extract container text to parse question and options
+        let container = waitingEl;
+        for (let i = 0; i < 8; i++) {
+            if (!container.parentElement || container.parentElement === convView) break;
+            container = container.parentElement;
+        }
+        const lines = (container.innerText || '').split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+
+        // Extract numbered options: pattern is a line with just a digit followed by a label line
+        const options = [];
+        for (let i = 0; i < lines.length; i++) {
+            if (/^\\d+$/.test(lines[i])) {
+                const label = lines[i + 1] || '';
+                if (label && label !== 'Submit' && label !== 'Waiting for user input...') {
+                    options.push({
+                        index: parseInt(lines[i], 10),
+                        label: label,
+                        isWriteIn: label.toLowerCase() === 'other' || label.toLowerCase() === 'skip'
+                    });
+                    i++;
+                }
+            }
+        }
+
+        // Extract question text (lines between waiting indicator and options)
+        const waitIdx = lines.indexOf('Waiting for user input...');
+        const firstOptIdx = lines.findIndex(l => /^\\d+$/.test(l));
+        const qStart = waitIdx >= 0 ? waitIdx + 1 : 0;
+        const qEnd = firstOptIdx >= 0 ? firstOptIdx : lines.length;
+        const skip = new Set(['Asking', 'Waiting for user input...', 'Please select an option:']);
+        const question = lines.slice(qStart, qEnd)
+            .filter(l => !skip.has(l) && !/^\\d+ question/.test(l))
+            .join(' ').trim() || 'Please select an option:';
+
+        return { question, options, hasWriteIn: options.some(o => o.isWriteIn) };
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const result = await cdp.call('Runtime.evaluate', {
+                expression: DETECT_SCRIPT,
+                returnByValue: true,
+                contextId: ctx.id
+            });
+            if (result.result && result.result.value !== undefined) {
+                return result.result.value;
+            }
+        } catch (e) { /* context unavailable */ }
+    }
+    return null;
+}
+
 // Background polling
 async function startPolling(wss) {
     let lastErrorLog = 0;
@@ -1836,12 +1914,13 @@ async function startPolling(wss) {
             if (snapshot && !snapshot.error) {
                 const hash = hashString(snapshot.html);
 
-                // Only update if content changed
+                // [Permission Prompt Fix - Phase A] Detect dialog every cycle (independent of hash change)
+                try { lastPermissionDialog = await detectPermissionDialog(cdpConnection); } catch(e) { lastPermissionDialog = null; }
+
+                // Only update snapshot broadcast if content changed
                 if (hash !== lastSnapshotHash) {
                     lastSnapshot = snapshot;
                     lastSnapshotHash = hash;
-
-
 
                     // Broadcast to all connected clients
                     wss.clients.forEach(client => {
@@ -1988,12 +2067,13 @@ async function createServer() {
     });
 
     // Get current snapshot
+    // [Permission Prompt Fix - Phase A] /snapshot now includes permissionDialog field
     app.get('/snapshot', (req, res) => {
         if (!lastSnapshot) {
             return res.status(503).json({ error: 'No snapshot available yet' });
         }
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.json(lastSnapshot);
+        res.json({ ...lastSnapshot, permissionDialog: lastPermissionDialog });
     });
 
     // Health check endpoint
@@ -2092,6 +2172,106 @@ async function createServer() {
             method: result.method || 'attempted',
             details: result
         });
+    });
+
+    // [Permission Prompt Fix - Phase B]
+    // Answers an active ask_question / permission dialog on behalf of the phone user.
+    app.post('/answer-permission', async (req, res) => {
+
+        if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
+        const { optionIndex, customText } = req.body;
+        if (optionIndex === undefined || optionIndex === null) {
+            return res.status(400).json({ error: 'optionIndex required' });
+        }
+
+        const customTextSafe = (customText || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/`/g, '\\`');
+        const hasCustom = !!(customText && customText.trim());
+
+        const ANSWER_SCRIPT = `(async () => {
+            const convView = document.querySelector('[data-testid="conversation-view"]');
+            if (!convView) return { error: 'conversation-view not found' };
+            const allEls = Array.from(convView.querySelectorAll('*'));
+
+            // Confirm dialog is still active
+            const submitBtn = allEls.find(el =>
+                (el.innerText || '').trim() === 'Submit' &&
+                (el.className || '').includes('bg-accent') &&
+                el.offsetHeight > 0
+            );
+            if (!submitBtn) return { error: 'Dialog no longer active — Submit button not found' };
+
+            // Find the standalone digit elements representing option numbers
+            const numEls = allEls.filter(el =>
+                /^\\d+$/.test((el.innerText || '').trim()) &&
+                el.children.length === 0 &&
+                el.offsetHeight > 0
+            );
+
+            // Match option by index number
+            const targetNum = numEls.find(el => parseInt((el.innerText || '').trim(), 10) === ${optionIndex});
+            if (!targetNum) return { error: 'Option ${optionIndex} not found in dialog' };
+
+            // Walk up to find a clickable parent container
+            let clickTarget = targetNum;
+            for (let i = 0; i < 4; i++) {
+                if (!clickTarget.parentElement) break;
+                const p = clickTarget.parentElement;
+                if (p.offsetHeight > 20 && p.offsetWidth > 30) { clickTarget = p; break; }
+                clickTarget = p;
+            }
+
+            // Click the option
+            clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            clickTarget.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
+            clickTarget.dispatchEvent(new MouseEvent('click',     { bubbles: true, cancelable: true }));
+            await new Promise(r => setTimeout(r, 400));
+
+            // If a custom write-in text was supplied, inject it into the revealed input
+            if (${hasCustom}) {
+                const writeIn = convView.querySelector('textarea, input[type="text"]');
+                if (writeIn) {
+                    writeIn.focus();
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
+                                      || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+                    if (nativeSetter && nativeSetter.set) {
+                        nativeSetter.set.call(writeIn, '${customTextSafe}');
+                    } else {
+                        writeIn.value = '${customTextSafe}';
+                    }
+                    writeIn.dispatchEvent(new Event('input',  { bubbles: true }));
+                    writeIn.dispatchEvent(new Event('change', { bubbles: true }));
+                    await new Promise(r => setTimeout(r, 200));
+                }
+            }
+
+            // Click the Submit button
+            submitBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            submitBtn.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
+            submitBtn.dispatchEvent(new MouseEvent('click',     { bubbles: true, cancelable: true }));
+            await new Promise(r => setTimeout(r, 200));
+
+            return { success: true, optionClicked: ${optionIndex}, customText: ${hasCustom} ? '${customTextSafe}' : null };
+        })()`;
+
+        try {
+            for (const ctx of cdpConnection.contexts) {
+                try {
+                    const result = await cdpConnection.call('Runtime.evaluate', {
+                        expression: ANSWER_SCRIPT,
+                        returnByValue: true,
+                        awaitPromise: true,
+                        contextId: ctx.id
+                    });
+                    if (result.result && result.result.value) {
+                        lastPermissionDialog = null; // optimistically clear
+                        return res.json(result.result.value);
+                    }
+                } catch (e) { /* try next context */ }
+            }
+            res.status(500).json({ error: 'Could not execute answer script in any context' });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
     });
 
     // UI Inspection endpoint - Returns all buttons as JSON for debugging
