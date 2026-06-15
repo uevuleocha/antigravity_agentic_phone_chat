@@ -745,8 +745,9 @@ async function clickElement(cdp, { selector, index, textContent }) {
 
     const EXP = `(async () => {
         try {
-            // [Agentic App Fix - Phase K] Priority: Search inside the chat container first for better accuracy
-            const root = document.querySelector('[data-testid="conversation-view"]') || document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade') || document;
+            // [Agentic App Fix - Phase F] If an active modal is open on desktop, search inside it first
+            const activeModal = document.querySelector('.animate-modalFadeIn, [role="dialog"], .bg-overlay-subtle');
+            const root = activeModal || document.querySelector('[data-testid="conversation-view"]') || document.getElementById('conversation') || document.getElementById('chat') || document.getElementById('cascade') || document;
             
             // Strategy: Find all elements matching the selector
             let elements = Array.from(root.querySelectorAll('${selector}'));

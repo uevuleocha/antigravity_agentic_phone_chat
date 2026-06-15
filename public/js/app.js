@@ -224,9 +224,13 @@ async function loadSnapshot() {
         handlePermissionDialog(data.permissionDialog);
 
         // [Agentic App Fix - Phase G] If we undid a message, sync the desktop's new input value to the phone
-        if (isAwaitingRevertInput && data.inputValue) {
+        const modalIsOpen = !!(data.permissionDialog || chatContainer.querySelector('.animate-modalFadeIn, [role="dialog"], .bg-overlay-subtle'));
+        if (isAwaitingRevertInput && !modalIsOpen && data.inputValue) {
             console.log('[Agentic App Fix - Phase G] Syncing reverted input value from desktop:', data.inputValue);
             messageInput.value = data.inputValue;
+            // Adjust input height to match content
+            messageInput.style.height = 'auto';
+            messageInput.style.height = messageInput.scrollHeight + 'px';
             messageInput.focus();
             isAwaitingRevertInput = false;
         }
@@ -1262,8 +1266,8 @@ chatContainer.addEventListener('click', async (e) => {
                 console.log('[Agentic App Fix] Agent article parent found:', !!agentArticle);
                 if (agentArticle) {
                     const clone = agentArticle.cloneNode(true);
-                    // Remove all control bars, SVGs, buttons, and dialog elements to isolate plain text
-                    clone.querySelectorAll('.pt-3, button, svg, [role="button"], [class*="button"]').forEach(el => el.remove());
+                    // Remove buttons, styles, svgs, and the control panels to isolate text (avoiding class*="button" collapse)
+                    clone.querySelectorAll('button, [role="button"], style, svg, .pt-3').forEach(el => el.remove());
                     textToCopy = (clone.innerText || clone.textContent || '').trim();
                 }
             }
@@ -1338,6 +1342,56 @@ chatContainer.addEventListener('click', async (e) => {
                 setTimeout(loadSnapshot, 500);
             } catch (err) {
                 console.error('Remote feedback click failed:', err);
+            }
+            return;
+        }
+
+        // [Agentic App Fix - Phase F] If clicked button is inside an active modal container
+        const modalContainer = btn.closest('.animate-modalFadeIn, [role="dialog"], .bg-overlay-subtle');
+        if (modalContainer) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const btnText = (btn.innerText || '').trim();
+            const btnTextLower = btnText.toLowerCase();
+
+            // Set or clear isAwaitingRevertInput depending on Confirm/Cancel
+            if (btnTextLower.includes('confirm')) {
+                console.log('[Agentic App Fix] Modal Confirm button clicked. Setting isAwaitingRevertInput = true');
+                isAwaitingRevertInput = true;
+                // Clear automatically after 8 seconds if not resolved
+                setTimeout(() => { isAwaitingRevertInput = false; }, 8000);
+            } else if (btnTextLower.includes('cancel') || !btnText) {
+                // empty text is likely the X close button on top right
+                console.log('[Agentic App Fix] Modal Cancel/Close button clicked. Clearing isAwaitingRevertInput');
+                isAwaitingRevertInput = false;
+            }
+
+            const targetSelector = btn.tagName.toLowerCase() === 'button' ? 'button' : '[role="button"]';
+            const allModalBtns = Array.from(modalContainer.querySelectorAll(targetSelector));
+            const btnIndex = allModalBtns.indexOf(btn);
+
+            console.log('[Agentic App Fix] Modal button clicked. Index in modal:', btnIndex, 'Text:', btnText);
+
+            btn.style.opacity = '0.5';
+            setTimeout(() => btn.style.opacity = '1', 300);
+
+            try {
+                await fetchWithAuth('/remote-click', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        selector: targetSelector,
+                        index: btnIndex >= 0 ? btnIndex : 0
+                    })
+                });
+
+                // Rapidly poll for updates
+                setTimeout(loadSnapshot, 300);
+                setTimeout(loadSnapshot, 800);
+                setTimeout(loadSnapshot, 2000);
+            } catch (err) {
+                console.error('Remote modal button click failed:', err);
             }
             return;
         }
