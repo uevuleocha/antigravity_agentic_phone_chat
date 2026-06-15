@@ -457,6 +457,17 @@ async function captureSnapshot(cdp) {
             }
         } catch(e) {}
         
+        // [Agentic App Fix - Phase F] Capture active modal dialogs (Confirm Undo, etc.) rendered outside conversation-view
+        try {
+            const activeModal = document.querySelector('.animate-modalFadeIn, [role="dialog"], .bg-overlay-subtle');
+            if (activeModal && activeModal !== clone && !clone.contains(activeModal)) {
+                const modalClone = activeModal.cloneNode(true);
+                modalClone.removeAttribute('data-ag-rem');
+                modalClone.querySelectorAll('[data-ag-rem]').forEach(el => el.removeAttribute('data-ag-rem'));
+                clone.appendChild(modalClone);
+            }
+        } catch(e) {}
+
         const html = clone.outerHTML;
         
         const rules = [];
@@ -469,6 +480,18 @@ async function captureSnapshot(cdp) {
         }
         const allCSS = rules.join('\\n');
         
+        // [Agentic App Fix - Phase G] Extract active editor's value for input box synchronization
+        const desktopInputValue = (() => {
+            try {
+                const editors = Array.from(document.querySelectorAll('[contenteditable="true"], textarea')).filter(el => el.offsetParent !== null);
+                const editor = editors[editors.length - 1];
+                if (editor) {
+                    return editor.tagName === 'TEXTAREA' ? editor.value : (editor.innerText || editor.textContent || '');
+                }
+            } catch(e) {}
+            return '';
+        })();
+
         return {
             html: html,
             css: allCSS,
@@ -480,7 +503,8 @@ async function captureSnapshot(cdp) {
                 nodes: clone.getElementsByTagName('*').length,
                 htmlSize: html.length,
                 cssSize: allCSS.length
-            }
+            },
+            inputValue: desktopInputValue
         };
     })()`;
 

@@ -54,6 +54,7 @@ let isSwitchingConversation = false; // [Agentic App Fix - Phase H] Suppress sho
 let selectedOptionIndex = null;
 let lastDismissedQuestion = null;
 let currentActiveQuestion = null;
+let isAwaitingRevertInput = false; // [Agentic App Fix - Phase G] Track if we are waiting for reverted input from desktop
 
 
 
@@ -221,6 +222,14 @@ async function loadSnapshot() {
 
         // [Permission Prompt Fix - Phase D] Handle permission dialog display
         handlePermissionDialog(data.permissionDialog);
+
+        // [Agentic App Fix - Phase G] If we undid a message, sync the desktop's new input value to the phone
+        if (isAwaitingRevertInput && data.inputValue) {
+            console.log('[Agentic App Fix - Phase G] Syncing reverted input value from desktop:', data.inputValue);
+            messageInput.value = data.inputValue;
+            messageInput.focus();
+            isAwaitingRevertInput = false;
+        }
 
         // Capture scroll state BEFORE updating content
 
@@ -1242,6 +1251,7 @@ chatContainer.addEventListener('click', async (e) => {
             e.stopPropagation();
             let textToCopy = '';
             const userStep = btn.closest('[data-testid="user-input-step"]');
+            console.log('[Agentic App Fix] Copy button clicked. User step parent found:', !!userStep);
             if (userStep) {
                 const clone = userStep.cloneNode(true);
                 const btnsPanel = clone.querySelector('[data-ag-rem="true"]') || clone.querySelector('.absolute');
@@ -1249,20 +1259,18 @@ chatContainer.addEventListener('click', async (e) => {
                 textToCopy = (clone.innerText || clone.textContent || '').trim();
             } else {
                 const agentArticle = btn.closest('[role="article"], [aria-label="Agent response"]');
+                console.log('[Agentic App Fix] Agent article parent found:', !!agentArticle);
                 if (agentArticle) {
-                    const textEl = agentArticle.querySelector('.select-text, .leading-relaxed');
-                    if (textEl) {
-                        textToCopy = (textEl.innerText || textEl.textContent || '').trim();
-                    } else {
-                        const clone = agentArticle.cloneNode(true);
-                        const btnsPanel = clone.querySelector('.pt-3') || clone.querySelector('button');
-                        if (btnsPanel) btnsPanel.remove();
-                        textToCopy = (clone.innerText || clone.textContent || '').trim();
-                    }
+                    const clone = agentArticle.cloneNode(true);
+                    // Remove all control bars, SVGs, buttons, and dialog elements to isolate plain text
+                    clone.querySelectorAll('.pt-3, button, svg, [role="button"], [class*="button"]').forEach(el => el.remove());
+                    textToCopy = (clone.innerText || clone.textContent || '').trim();
                 }
             }
+            console.log('[Agentic App Fix] Text length to copy:', textToCopy.length);
             if (textToCopy) {
                 const success = await copyToClipboard(textToCopy);
+                console.log('[Agentic App Fix] copyToClipboard success:', success);
                 if (success) {
                     const originalOpacity = btn.style.opacity || '1';
                     btn.style.opacity = '0.3';
@@ -1279,7 +1287,13 @@ chatContainer.addEventListener('click', async (e) => {
             e.stopPropagation();
             const allRevertBtns = Array.from(chatContainer.querySelectorAll('button[data-testid="revert-button"], button[aria-label*="Undo"]'));
             const revertIndex = allRevertBtns.indexOf(btn);
+            console.log('[Agentic App Fix] Revert/Undo button clicked. Index:', revertIndex);
             
+            // Set flag to await reverted input from desktop when confirm modal is processed
+            isAwaitingRevertInput = true;
+            // Clear flag automatically after 8 seconds if not resolved (e.g. cancelled)
+            setTimeout(() => { isAwaitingRevertInput = false; }, 8000);
+
             btn.style.opacity = '0.5';
             setTimeout(() => btn.style.opacity = '1', 300);
 
@@ -1307,6 +1321,7 @@ chatContainer.addEventListener('click', async (e) => {
             e.stopPropagation();
             const allFeedbackBtns = Array.from(chatContainer.querySelectorAll(`button[aria-label="${feedbackLabel}"]`));
             const feedbackIndex = allFeedbackBtns.indexOf(btn);
+            console.log('[Agentic App Fix] Feedback clicked:', feedbackLabel, 'Index:', feedbackIndex);
 
             btn.style.opacity = '0.5';
             setTimeout(() => btn.style.opacity = '1', 300);
@@ -1333,7 +1348,7 @@ chatContainer.addEventListener('click', async (e) => {
         const actionKeywords = [
             'Allow this conversation', 'Always allow', 'Allow once',
             'Review changes', 'Review',
-            'Confirm', 'Accept', 'Reject', 'Discard',
+            'Confirm', 'Cancel', 'Accept', 'Reject', 'Discard',
             'Allow', 'Deny', 'Apply', 'Save', 'Run',
             'Yes', 'No'
         ];
