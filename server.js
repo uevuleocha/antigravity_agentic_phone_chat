@@ -1841,6 +1841,8 @@ async function startPolling(wss) {
                     lastSnapshot = snapshot;
                     lastSnapshotHash = hash;
 
+
+
                     // Broadcast to all connected clients
                     wss.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {

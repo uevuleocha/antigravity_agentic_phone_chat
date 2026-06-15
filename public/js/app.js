@@ -425,7 +425,12 @@ async function loadSnapshot() {
             '    background-color: transparent !important;\n' +
             '}';
         styleTag.textContent = darkModeOverrides;
-        chatContent.innerHTML = data.html;
+
+        // [Agentic App Fix - Phase R] Preprocess snapshot HTML to disable container query height collapse
+        let htmlContent = data.html || '';
+        htmlContent = htmlContent.replace(/container-type:\s*size/g, 'container-type: none');
+        htmlContent = htmlContent.replace(/min-height:\s*calc\(100cqh\s*-\s*50px\)/g, 'min-height: auto');
+        chatContent.innerHTML = htmlContent;
 
 
         // Add mobile copy buttons to all code blocks
