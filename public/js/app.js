@@ -1485,6 +1485,41 @@ chatContainer.addEventListener('click', async (e) => {
             }
         }
     }
+
+    // [Agentic App Fix - user message expansion]
+    const cursorPointer = e.target.closest('.cursor-pointer, [class*="cursor-pointer"]');
+    const userStepToggle = (cursorPointer && cursorPointer.closest('[data-testid="user-input-step"]')) ? cursorPointer : null;
+    if (userStepToggle) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const selector = '[data-testid="user-input-step"] .cursor-pointer';
+        const allToggles = Array.from(chatContainer.querySelectorAll(selector));
+        const toggleIndex = allToggles.indexOf(userStepToggle);
+
+        console.log('[Agentic App Fix] User message toggle clicked. Index:', toggleIndex);
+
+        userStepToggle.style.opacity = '0.5';
+        setTimeout(() => userStepToggle.style.opacity = '1', 300);
+
+        try {
+            await fetchWithAuth('/remote-click', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    selector: selector,
+                    index: toggleIndex >= 0 ? toggleIndex : 0
+                })
+            });
+
+            // Reload snapshot multiple times to catch the UI change
+            setTimeout(loadSnapshot, 300);
+            setTimeout(loadSnapshot, 800);
+            setTimeout(loadSnapshot, 1500);
+        } catch (err) {
+            console.error('Remote user message toggle click failed:', err);
+        }
+    }
 });
 
 // --- Initial Event Listeners (Refactored from inline) ---
