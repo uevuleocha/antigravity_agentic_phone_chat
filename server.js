@@ -1849,24 +1849,24 @@ async function detectPermissionDialog(cdp) {
 
         numEls.forEach(numEl => {
             const index = parseInt(numEl.innerText.trim(), 10);
-            let row = numEl;
-            while (row && row.parentElement && row.parentElement !== container) {
-                row = row.parentElement;
-            }
-            if (row) {
-
-                const inputEl = row.querySelector('textarea, input');
+            const optionWrapper = numEl.closest('label') || numEl.parentElement;
+            if (optionWrapper) {
+                const textInput = optionWrapper.querySelector('textarea, input[type="text"], input:not([type="radio"]):not([type="checkbox"])');
                 let label = '';
-                if (inputEl) {
-                    label = inputEl.placeholder || 'Other';
+                let isWriteIn = false;
+
+                if (textInput) {
+                    label = textInput.placeholder || 'Other';
+                    isWriteIn = true;
                 } else {
-                    label = row.innerText.replace(/^\\d+\\s*/, '').trim();
+                    label = optionWrapper.innerText.replace(/^\\d+\\s*/, '').trim();
                 }
+
                 if (label && !label.startsWith('Submit') && !label.startsWith('Waiting for user input')) {
                     options.push({
                         index: index,
                         label: label,
-                        isWriteIn: !!inputEl || label.toLowerCase().includes('other') || label.toLowerCase().includes('skip')
+                        isWriteIn: isWriteIn || label.toLowerCase().includes('other') || label.toLowerCase().includes('skip')
                     });
                 }
             }
@@ -1879,7 +1879,6 @@ async function detectPermissionDialog(cdp) {
         const skip = ['Asking', 'Please select an option:'];
         const question = lines.slice(0, qEnd)
             .filter(l => !skip.includes(l) && !l.startsWith('Waiting for user input') && !/^\\d+ question/.test(l))
-
             .join(' ').trim() || 'Please select an option:';
 
         return { question, options, hasWriteIn: options.some(o => o.isWriteIn) };
