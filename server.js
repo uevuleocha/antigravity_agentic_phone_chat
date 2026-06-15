@@ -563,19 +563,48 @@ async function injectMessage(cdp, text) {
             editor.focus();
             if (editor.tagName === 'TEXTAREA') {
                 editor.select();
+                try { document.execCommand("insertText", false, textToInsert); } catch(e) { editor.value = textToInsert; }
             } else {
-                const sel = window.getSelection();
-                if (sel) {
-                    sel.selectAllChildren(editor);
+                let inserted = false;
+                try {
+                    // [Agentic App Fix - Phase J] Focus and run native selectAll to target leaf text nodes
+                    editor.focus();
+                    document.execCommand('selectAll', false, null);
+                    // Atomically replace selection with new text
+                    inserted = !!document.execCommand("insertText", false, textToInsert);
+                } catch (err) {
+                    console.warn("execCommand selectAll/insertText failed:", err);
+                }
+                
+                if (!inserted) {
+                    // Selection API fallback if native selectAll is rejected
+                    try {
+                        const range = document.createRange();
+                        range.selectNodeContents(editor);
+                        const sel = window.getSelection();
+                        if (sel) {
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }
+                        inserted = !!document.execCommand("insertText", false, textToInsert);
+                    } catch (err2) {
+                        console.warn("Selection API fallback failed:", err2);
+                    }
+                }
+
+                if (!inserted) {
+                    // Ultimate fallback direct mutation (warn: may not sync with React Lexical VDOM)
+                    editor.textContent = textToInsert;
+                    editor.dispatchEvent(new InputEvent("beforeinput", { bubbles:true, inputType:"insertText", data: textToInsert }));
+                    editor.dispatchEvent(new InputEvent("input", { bubbles:true, inputType:"insertText", data: textToInsert }));
                 }
             }
-            let inserted = false;
-            try { inserted = !!document.execCommand?.("insertText", false, textToInsert); } catch {}
-            if (!inserted) {
-                editor.textContent = textToInsert;
-                editor.dispatchEvent(new InputEvent("beforeinput", { bubbles:true, inputType:"insertText", data: textToInsert }));
-                editor.dispatchEvent(new InputEvent("input", { bubbles:true, inputType:"insertText", data: textToInsert }));
-            }
+
+            // Force React synchronization via generic input & change events
+            try {
+                editor.dispatchEvent(new Event('input', { bubbles: true }));
+                editor.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (e) {}
         }
 
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -2219,6 +2248,9 @@ async function createServer() {
         if (!cdpConnection) {
             return res.status(503).json({ error: 'CDP not connected' });
         }
+
+        // [Agentic App Fix - Phase K] Ensure connection targets the active focused page target before typing
+        try { await ensureActiveCDP(); } catch (e) {}
 
         const result = await injectMessage(cdpConnection, message);
 

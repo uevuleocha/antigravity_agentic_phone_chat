@@ -1260,9 +1260,10 @@ chatContainer.addEventListener('click', async (e) => {
                 const clone = userStep.cloneNode(true);
                 const btnsPanel = clone.querySelector('[data-ag-rem="true"]') || clone.querySelector('.absolute');
                 if (btnsPanel) btnsPanel.remove();
-                textToCopy = (clone.innerText || clone.textContent || '').trim();
+                // [Agentic App Fix - Phase I] Whitespace-proof check for mobile browsers on cloned disconnected nodes
+                textToCopy = (clone.innerText || '').trim() || (clone.textContent || '').trim();
             } else {
-                const agentArticle = btn.closest('[role="article"]');
+                const agentArticle = btn.closest('[role="article"], [aria-label="Agent response"]');
                 console.log('[Agentic App Fix] Agent article parent found:', !!agentArticle);
                 if (agentArticle) {
                     // Try to find the specific text container first
@@ -1270,14 +1271,16 @@ chatContainer.addEventListener('click', async (e) => {
                     if (textEl) {
                         const clone = textEl.cloneNode(true);
                         clone.querySelectorAll('style, svg, button, [role="button"]').forEach(el => el.remove());
-                        textToCopy = (clone.innerText || clone.textContent || '').trim();
+                        // [Agentic App Fix - Phase I] Whitespace-proof check for mobile browsers on cloned disconnected nodes
+                        textToCopy = (clone.innerText || '').trim() || (clone.textContent || '').trim();
                         console.log('[Agentic App Fix] Copied via targeted text container:', textToCopy.substring(0, 30));
                     }
                     // Fallback to pruned article clone if text container is not found
                     if (!textToCopy) {
                         const clone = agentArticle.cloneNode(true);
                         clone.querySelectorAll('button, [role="button"], style, svg, .pt-3').forEach(el => el.remove());
-                        textToCopy = (clone.innerText || clone.textContent || '').trim();
+                        // [Agentic App Fix - Phase I] Whitespace-proof check for mobile browsers on cloned disconnected nodes
+                        textToCopy = (clone.innerText || '').trim() || (clone.textContent || '').trim();
                         console.log('[Agentic App Fix] Copied via article fallback:', textToCopy.substring(0, 30));
                     }
                 }
