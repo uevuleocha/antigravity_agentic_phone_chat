@@ -566,14 +566,95 @@ async function injectMessage(cdp, text) {
                 try { document.execCommand("insertText", false, textToInsert); } catch(e) { editor.value = textToInsert; }
             } else {
                 let inserted = false;
+
+                // [Agentic App Fix - Lexical Editor React Fiber Integration]
                 try {
-                    // [Agentic App Fix - Phase J] Focus and run native selectAll to target leaf text nodes
-                    editor.focus();
-                    document.execCommand('selectAll', false, null);
-                    // Atomically replace selection with new text
-                    inserted = !!document.execCommand("insertText", false, textToInsert);
-                } catch (err) {
-                    console.warn("execCommand selectAll/insertText failed:", err);
+                    function findLexicalEditor(obj, visited = new Set()) {
+                        if (!obj || typeof obj !== 'object' || visited.has(obj)) return null;
+                        visited.add(obj);
+                        if (typeof obj.update === 'function' && 
+                            typeof obj.getEditorState === 'function' && 
+                            typeof obj.setEditorState === 'function') {
+                            return obj;
+                        }
+                        if (obj instanceof Element) return null;
+                        for (const key of Object.keys(obj)) {
+                            try {
+                                const val = obj[key];
+                                const found = findLexicalEditor(val, visited);
+                                if (found) return found;
+                            } catch(e) {}
+                        }
+                        return null;
+                    }
+
+                    function getEditorInstance(el) {
+                        const key = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+                        if (!key) return null;
+                        let fiber = el[key];
+                        while (fiber) {
+                            if (fiber.memoizedProps) {
+                                const ed = findLexicalEditor(fiber.memoizedProps);
+                                if (ed) return ed;
+                            }
+                            if (fiber.memoizedState) {
+                                const ed = findLexicalEditor(fiber.memoizedState);
+                                if (ed) return ed;
+                            }
+                            fiber = fiber.return;
+                        }
+                        return null;
+                    }
+
+                    const lexicalEditor = getEditorInstance(editor);
+                    if (lexicalEditor) {
+                        const jsonState = {
+                          root: {
+                            children: [
+                              {
+                                children: [
+                                  {
+                                    detail: 0,
+                                    format: 0,
+                                    mode: "normal",
+                                    style: "",
+                                    text: textToInsert,
+                                    type: "text",
+                                    version: 1
+                                  }
+                                ],
+                                direction: "ltr",
+                                format: "",
+                                indent: 0,
+                                type: "paragraph",
+                                version: 1
+                              }
+                            ],
+                            direction: "ltr",
+                            format: "",
+                            indent: 0,
+                            type: "root",
+                            version: 1
+                          }
+                        };
+                        lexicalEditor.setEditorState(lexicalEditor.parseEditorState(JSON.stringify(jsonState)));
+                        editor.focus();
+                        inserted = true;
+                    }
+                } catch(e) {
+                    console.warn("Lexical React Fiber lookup failed:", e);
+                }
+
+                if (!inserted) {
+                    try {
+                        // [Agentic App Fix - Phase J] Focus and run native selectAll to target leaf text nodes
+                        editor.focus();
+                        document.execCommand('selectAll', false, null);
+                        // Atomically replace selection with new text
+                        inserted = !!document.execCommand("insertText", false, textToInsert);
+                    } catch (err) {
+                        console.warn("execCommand selectAll/insertText failed:", err);
+                    }
                 }
                 
                 if (!inserted) {
@@ -2259,8 +2340,14 @@ async function createServer() {
         res.json({
             success: result.ok !== false,
             method: result.method || 'attempted',
-            details: result
         });
+    });
+
+    // [Agentic App Fix - Remote Client Logger]
+    app.post('/client-log', (req, res) => {
+        const { type, message } = req.body;
+        console.log(`[CLIENT-${type.toUpperCase()}] ${message}`);
+        res.json({ ok: true });
     });
 
     // [Permission Prompt Fix - Phase B]

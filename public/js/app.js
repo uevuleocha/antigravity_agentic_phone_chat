@@ -1,3 +1,30 @@
+// --- Remote Client Logger ---
+async function remoteLog(type, ...args) {
+    const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    try {
+        await fetch('/client-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type, message })
+        });
+    } catch(e) {}
+}
+const originalLog = console.log;
+console.log = function(...args) {
+    originalLog.apply(console, args);
+    remoteLog('log', ...args);
+};
+const originalError = console.error;
+console.error = function(...args) {
+    originalError.apply(console, args);
+    remoteLog('error', ...args);
+};
+const originalWarn = console.warn;
+console.warn = function(...args) {
+    originalWarn.apply(console, args);
+    remoteLog('warn', ...args);
+};
+
 // --- Elements ---
 const chatContainer = document.getElementById('chatContainer');
 const chatContent = document.getElementById('chatContent');
@@ -1267,7 +1294,7 @@ chatContainer.addEventListener('click', async (e) => {
                 console.log('[Agentic App Fix] Agent article parent found:', !!agentArticle);
                 if (agentArticle) {
                     // Try to find the specific text container first
-                    const textEl = agentArticle.querySelector('.select-text') || agentArticle.querySelector('.px-2.py-1');
+                    const textEl = agentArticle.querySelector('.select-text') || agentArticle.querySelector('.px-2.py-1:not(button)');
                     if (textEl) {
                         const clone = textEl.cloneNode(true);
                         clone.querySelectorAll('style, svg, button, [role="button"]').forEach(el => el.remove());
