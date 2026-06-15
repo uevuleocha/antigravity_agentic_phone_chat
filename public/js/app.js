@@ -248,6 +248,13 @@ async function loadSnapshot() {
             '    width: 100% !important;\n' +
             '}\n' +
             '\n' +
+            '/* [Agentic App Fix - Phase M] Prevent inner layout divs from collapsing or remaining transparent */\n' +
+            '[data-testid="conversation-view"] div, .scrollbar-hide div {\n' +
+            '    height: auto !important;\n' +
+            '    opacity: 1 !important;\n' +
+            '    visibility: visible !important;\n' +
+            '}\n' +
+            '\n' +
             '/* Fix stacking BUT preserve absolute/fixed positioning for dropdowns */\n' +
             '#conversation > div, #chat > div, #cascade > div, [data-testid="conversation-view"] > div, .scrollbar-hide > div {\n' +
             '    position: static !important;\n' +

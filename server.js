@@ -507,8 +507,8 @@ async function injectMessage(cdp, text) {
         const cancel = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
         if (cancel && cancel.offsetParent !== null) return { ok:false, reason:"busy" };
 
-        // [Agentic App Fix - Phase K] Include conversation-view / scrollbar-hide selectors
-        const editors = [...document.querySelectorAll('[data-testid="conversation-view"] [contenteditable="true"], .scrollbar-hide [contenteditable="true"], #conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"]')]
+        // [Agentic App Fix - Phase N] Include global fallback selectors for contenteditable and textarea if container query fails
+        const editors = [...document.querySelectorAll('[data-testid="conversation-view"] [contenteditable="true"], .scrollbar-hide [contenteditable="true"], #conversation [contenteditable="true"], #chat [contenteditable="true"], #cascade [contenteditable="true"], [contenteditable="true"], textarea')]
             .filter(el => el.offsetParent !== null);
         const editor = editors.at(-1);
         if (!editor) return { ok:false, error:"editor_not_found" };
@@ -529,15 +529,19 @@ async function injectMessage(cdp, text) {
 
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-        const submit = document.querySelector("svg.lucide-arrow-right")?.closest("button");
+        // [Agentic App Fix - Phase N] Prioritize send button by its verified tooltip ID, fallback to icon/class queries
+        const submit = document.querySelector('[data-tooltip-id="input-send-button-send-tooltip"]') ||
+                       document.querySelector("svg.lucide-arrow-right")?.closest("button");
         if (submit && !submit.disabled) {
             submit.click();
             return { ok:true, method:"click_submit" };
         }
 
-        // Submit button not found, but text is inserted - trigger Enter key
-        editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles:true, key:"Enter", code:"Enter" }));
-        editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles:true, key:"Enter", code:"Enter" }));
+        // [Agentic App Fix - Phase N] Include legacy keyCode and which properties for React synthetic keyboard event compatibility
+        const keyOpts = { bubbles:true, key:"Enter", code:"Enter", keyCode:13, which:13 };
+        editor.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
+        editor.dispatchEvent(new KeyboardEvent("keypress", keyOpts));
+        editor.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
         
         return { ok:true, method:"enter_keypress" };
     })()`;
