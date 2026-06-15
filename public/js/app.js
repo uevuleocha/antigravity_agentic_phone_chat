@@ -1332,13 +1332,20 @@ function handlePermissionDialog(dialog) {
         return;
     }
 
-    currentActiveQuestion = dialog.question;
-
     // If the user already dismissed this specific question, don't show it again
     if (dialog.question === lastDismissedQuestion) {
         permissionOverlay.classList.remove('show');
+        currentActiveQuestion = dialog.question;
         return;
     }
+
+    // If the modal is already open and showing the same question, do NOT reset it
+    if (permissionOverlay.classList.contains('show') && dialog.question === currentActiveQuestion) {
+        return;
+    }
+
+    currentActiveQuestion = dialog.question;
+
 
     // Populate question
     permissionPrompt.textContent = dialog.question;

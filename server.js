@@ -1840,19 +1840,41 @@ async function detectPermissionDialog(cdp) {
 
         // Extract numbered options: pattern is a line with just a digit followed by a label line
         const options = [];
-        for (let i = 0; i < lines.length; i++) {
-            if (/^\\d+$/.test(lines[i])) {
-                const label = lines[i + 1] || '';
-                if (label && !label.startsWith('Submit') && !label.startsWith('Waiting for user input')) {
-                    options.push({
-                        index: parseInt(lines[i], 10),
-                        label: label,
-                        isWriteIn: label.toLowerCase() === 'other' || label.toLowerCase() === 'skip'
-                    });
-                    i++;
+        const containerEls = Array.from(container.querySelectorAll('*'));
+        const numEls = containerEls.filter(el =>
+            /^\\d+$/.test((el.innerText || '').trim()) &&
+            el.children.length === 0 &&
+            el.offsetHeight > 0
+        );
+
+        numEls.forEach(numEl => {
+            const index = parseInt(numEl.innerText.trim(), 10);
+            let row = numEl.parentElement;
+            for (let i = 0; i < 3; i++) {
+                if (row && row.parentElement && row.parentElement !== container) {
+                    row = row.parentElement;
+                } else {
+                    break;
                 }
             }
-        }
+            if (row) {
+                const inputEl = row.querySelector('textarea, input');
+                let label = '';
+                if (inputEl) {
+                    label = inputEl.placeholder || 'Other';
+                } else {
+                    label = row.innerText.replace(/^\\d+\\s*/, '').trim();
+                }
+                if (label && !label.startsWith('Submit') && !label.startsWith('Waiting for user input')) {
+                    options.push({
+                        index: index,
+                        label: label,
+                        isWriteIn: !!inputEl || label.toLowerCase().includes('other') || label.toLowerCase().includes('skip')
+                    });
+                }
+            }
+        });
+
 
         // Extract question text (lines between container start and options)
         const firstOptIdx = lines.findIndex(l => /^\\d+$/.test(l));
