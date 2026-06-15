@@ -759,7 +759,35 @@ async function syncScrollToDesktop() {
     }
 }
 
+// --- User Interaction & Scrolling Refinement ---
+let userScrollActive = false;
+let userScrollTimeout = null;
+
+function setUserScrollActive() {
+    userScrollActive = true;
+    clearTimeout(userScrollTimeout);
+    userScrollTimeout = setTimeout(() => {
+        userScrollActive = false;
+    }, 1000); // Respect inertia/momentum scroll
+}
+
+chatContainer.addEventListener('touchstart', setUserScrollActive, { passive: true });
+chatContainer.addEventListener('touchmove', setUserScrollActive, { passive: true });
+chatContainer.addEventListener('wheel', setUserScrollActive, { passive: true });
+chatContainer.addEventListener('mousedown', setUserScrollActive);
+
+window.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) {
+        setUserScrollActive();
+    }
+});
+
 chatContainer.addEventListener('scroll', () => {
+    if (!userScrollActive) {
+        // Ignore programmatic/system-initiated scroll events (like scrollToBottom)
+        return;
+    }
+
     userIsScrolling = true;
     // Set a lock to prevent auto-scroll jumping for a few seconds
     userScrollLockUntil = Date.now() + USER_SCROLL_LOCK_DURATION;
@@ -785,7 +813,7 @@ chatContainer.addEventListener('scroll', () => {
     idleTimer = setTimeout(() => {
         userIsScrolling = false;
         autoRefreshEnabled = true;
-    }, 5000);
+    }, 1500); // Tighter lockout window for snappier refresh recovery (1.5s instead of 5s)
 });
 
 scrollToBottomBtn.addEventListener('click', () => {
