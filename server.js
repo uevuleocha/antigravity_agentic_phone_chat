@@ -1811,7 +1811,7 @@ async function detectPermissionDialog(cdp) {
 
         // Anchor: "Waiting for user input..." with select-none class AND Submit button present
         const waitingEl = allEls.find(el =>
-            (el.innerText || '').trim() === 'Waiting for user input...' &&
+            (el.innerText || '').trim().startsWith('Waiting for user input') &&
             (el.className || '').includes('select-none') &&
             el.offsetHeight > 0
         );
@@ -1819,18 +1819,23 @@ async function detectPermissionDialog(cdp) {
 
         // Confirm Submit button is live (dialog not yet answered)
         const hasSubmit = allEls.some(el =>
-            (el.innerText || '').trim() === 'Submit' &&
+            (el.innerText || '').trim().startsWith('Submit') &&
             (el.className || '').includes('bg-accent') &&
             el.offsetHeight > 0
         );
         if (!hasSubmit) return null;
 
-        // Extract container text to parse question and options
-        let container = waitingEl;
-        for (let i = 0; i < 8; i++) {
-            if (!container.parentElement || container.parentElement === convView) break;
-            container = container.parentElement;
-        }
+
+        // Extract container using submitBtn parent chain (level 2)
+        const submitBtn = allEls.find(el =>
+            (el.innerText || '').trim().startsWith('Submit') &&
+            (el.className || '').includes('bg-accent') &&
+            el.offsetHeight > 0
+        );
+        if (!submitBtn) return null;
+        const container = submitBtn.parentElement ? submitBtn.parentElement.parentElement : null;
+        if (!container) return null;
+
         const lines = (container.innerText || '').split('\\n').map(l => l.trim()).filter(l => l.length > 0);
 
         // Extract numbered options: pattern is a line with just a digit followed by a label line
@@ -1838,7 +1843,7 @@ async function detectPermissionDialog(cdp) {
         for (let i = 0; i < lines.length; i++) {
             if (/^\\d+$/.test(lines[i])) {
                 const label = lines[i + 1] || '';
-                if (label && label !== 'Submit' && label !== 'Waiting for user input...') {
+                if (label && !label.startsWith('Submit') && !label.startsWith('Waiting for user input')) {
                     options.push({
                         index: parseInt(lines[i], 10),
                         label: label,
@@ -1849,17 +1854,17 @@ async function detectPermissionDialog(cdp) {
             }
         }
 
-        // Extract question text (lines between waiting indicator and options)
-        const waitIdx = lines.indexOf('Waiting for user input...');
+        // Extract question text (lines between container start and options)
         const firstOptIdx = lines.findIndex(l => /^\\d+$/.test(l));
-        const qStart = waitIdx >= 0 ? waitIdx + 1 : 0;
         const qEnd = firstOptIdx >= 0 ? firstOptIdx : lines.length;
-        const skip = new Set(['Asking', 'Waiting for user input...', 'Please select an option:']);
-        const question = lines.slice(qStart, qEnd)
-            .filter(l => !skip.has(l) && !/^\\d+ question/.test(l))
+        const skip = ['Asking', 'Please select an option:'];
+        const question = lines.slice(0, qEnd)
+            .filter(l => !skip.includes(l) && !l.startsWith('Waiting for user input') && !/^\\d+ question/.test(l))
+
             .join(' ').trim() || 'Please select an option:';
 
         return { question, options, hasWriteIn: options.some(o => o.isWriteIn) };
+
     })()`;
 
     for (const ctx of cdp.contexts) {
@@ -2194,11 +2199,12 @@ async function createServer() {
 
             // Confirm dialog is still active
             const submitBtn = allEls.find(el =>
-                (el.innerText || '').trim() === 'Submit' &&
+                (el.innerText || '').trim().startsWith('Submit') &&
                 (el.className || '').includes('bg-accent') &&
                 el.offsetHeight > 0
             );
             if (!submitBtn) return { error: 'Dialog no longer active — Submit button not found' };
+
 
             // Find the standalone digit elements representing option numbers
             const numEls = allEls.filter(el =>
